@@ -1,4 +1,6 @@
 [apache-mod-negotiation-listing:exposed_files] [http] [low] https://ao.jpl.nasa.gov/index ["index.html"] [path="/index"]
-[apache-mod-negotiation-listing:exposed_files] [http] [low] https://ecolloq.gsfc.nasa.gov/index ["index.html"] [path="/index"]
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://ccmpp.gsfc.nasa.gov/index ["index.html"] [path="/index"]
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://grndl2292612.grc.nasa.gov/index ["index.html.bak","index.html"] [path="/index"]
+[ms-front-page-misconfig] [http] [low] https://jpss.gsfc.nasa.gov/_vti_pvt/service.cnf
 [tomcat-stacktraces] [http] [low] https://openaltimetry.earthdatacloud.nasa.gov/?f=\[
-[apache-mod-negotiation-listing:exposed_files] [http] [low] https://skyview.gsfc.nasa.gov/test ["test.html"] [path="/test"]
+[tomcat-stacktraces] [http] [low] https://openaltimetry.earthdatacloud.nasa.gov/?f=\[
