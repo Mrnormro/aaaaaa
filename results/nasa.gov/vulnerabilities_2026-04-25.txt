@@ -1,0 +1,4 @@
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://ao.jpl.nasa.gov/index ["index.html"] [path="/index"]
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://ecolloq.gsfc.nasa.gov/index ["index.html"] [path="/index"]
+[tomcat-stacktraces] [http] [low] https://openaltimetry.earthdatacloud.nasa.gov/?f=\[
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://skyview.gsfc.nasa.gov/test ["test.html"] [path="/test"]
