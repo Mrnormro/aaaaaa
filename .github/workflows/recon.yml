@@ -1,9 +1,9 @@
-name: NASA Advanced Recon 2026
+name: NASA Ultimate Recon 2026 (Persistent Data)
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Jalan otomatis setiap tengah malam
-  workflow_dispatch:   # Tombol manual "Run Workflow"
+    - cron: '0 0 * * *' 
+  workflow_dispatch:   
 
 jobs:
   recon-nasa:
@@ -19,50 +19,52 @@ jobs:
 
       - name: Install Hunting Tools
         run: |
-          # Instalasi tools versi terbaru 2026
-          go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-          go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
           go install github.com/tomnomnom/anew@latest
           sudo mv ~/go/bin/* /usr/bin/
 
-      - name: Start Scanning NASA
+      - name: Execution - Scan from Existing Resolved List
         env:
           TARGET: "nasa.gov"
         run: |
           mkdir -p results/$TARGET
           TODAY=$(date +%Y-%m-%d)
+          RESOLVED_FILE="results/$TARGET/resolved.txt"
 
-          echo "[*] Mencari Subdomain & Resolving..."
-          subfinder -d $TARGET -silent | dnsx -silent | anew results/$TARGET/resolved.txt
+          # Cek apakah file resolved.txt ada
+          if [ -f "$RESOLVED_FILE" ]; then
+            echo "[+] Menggunakan file $RESOLVED_FILE yang sudah ada."
+            
+            echo "[*] Tahap 1: Validasi URL Aktif (Proses Pembersihan)..."
+            cat $RESOLVED_FILE | httpx -silent | anew results/$TARGET/live_web_clean.txt
 
-          echo "[*] Web Probing (Httpx)..."
-          cat results/$TARGET/resolved.txt | httpx -silent -td -title -status-code -rl 100 -o results/$TARGET/live_web.txt
+            echo "[*] Tahap 2: Scanning Vulnerabilities (Low to Critical)..."
+            cat results/$TARGET/live_web_clean.txt | nuclei \
+              -as \
+              -silent \
+              -severity low,medium,high,critical \
+              -retries 2 \
+              -timeout 10 \
+              -rl 50 \
+              -o results/$TARGET/vulnerabilities_$TODAY.txt
+          else
+            echo "[!] File $RESOLVED_FILE tidak ditemukan. Pastikan sudah ada hasil scan sebelumnya."
+            exit 1
+          fi
 
-          echo "[*] Vulnerability Scanning (Nuclei)..."
-          # UPDATE: Flag -severity low,medium,high,critical akan MEMBUANG hasil 'info'
-          cat results/$TARGET/live_web.txt | awk '{print $1}' | nuclei \
-            -as \
-            -silent \
-            -severity low,medium,high,critical \
-            -rl 50 \
-            -o results/$TARGET/vulnerabilities_$TODAY.txt
-
-      - name: Save Results to Repo
+      - name: Save Results to Repository
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Identitas bot resmi GitHub
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           
           git add results/
           
-          # Hanya commit jika ada perubahan file baru
           if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "NASA Recon Report (No Info) - $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "NASA Scan Update (Persistent) - $TODAY"
             git push origin master || git push origin main
           else
-            echo "Gak ada temuan baru, skip push."
+            echo "Tidak ada temuan baru."
           fi
