@@ -2,7 +2,7 @@ name: NASA Advanced Recon 2026
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Jalan otomatis setiap jam 12 malam
+    - cron: '0 0 * * *' # Jalan otomatis setiap tengah malam
   workflow_dispatch:   # Tombol manual "Run Workflow"
 
 jobs:
@@ -19,6 +19,7 @@ jobs:
 
       - name: Install Hunting Tools
         run: |
+          # Instalasi tools versi terbaru 2026
           go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
@@ -33,31 +34,35 @@ jobs:
           mkdir -p results/$TARGET
           TODAY=$(date +%Y-%m-%d)
 
-          # Cari subdomain & filter yang aktif saja
+          echo "[*] Mencari Subdomain & Resolving..."
           subfinder -d $TARGET -silent | dnsx -silent | anew results/$TARGET/resolved.txt
 
-          # Cek web server & teknologi (Rate limit 100 biar aman)
+          echo "[*] Web Probing (Httpx)..."
           cat results/$TARGET/resolved.txt | httpx -silent -td -title -status-code -rl 100 -o results/$TARGET/live_web.txt
 
-          # Scan kerentanan otomatis
-          cat results/$TARGET/live_web.txt | awk '{print $1}' | nuclei -as -silent -rl 50 -o results/$TARGET/vulnerabilities_$TODAY.txt
+          echo "[*] Vulnerability Scanning (Nuclei)..."
+          # UPDATE: Flag -severity low,medium,high,critical akan MEMBUANG hasil 'info'
+          cat results/$TARGET/live_web.txt | awk '{print $1}' | nuclei \
+            -as \
+            -silent \
+            -severity low,medium,high,critical \
+            -rl 50 \
+            -o results/$TARGET/vulnerabilities_$TODAY.txt
 
       - name: Save Results to Repo
         env:
-          # Menggunakan token internal GitHub
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # [BAGIAN PENTING]: Kasih tahu identitas bot ke Git
+          # Identitas bot resmi GitHub
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           
-          # Simpan perubahan
           git add results/
           
-          # Commit hanya jika ada file baru agar tidak error
+          # Hanya commit jika ada perubahan file baru
           if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "NASA Recon Report - $(date +'%Y-%m-%d %H:%M')"
+            git commit -m "NASA Recon Report (No Info) - $(date +'%Y-%m-%d %H:%M')"
             git push origin master || git push origin main
           else
-            echo "Gak ada data baru, gak perlu push."
+            echo "Gak ada temuan baru, skip push."
           fi
