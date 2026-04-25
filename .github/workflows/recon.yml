@@ -1,9 +1,9 @@
-name: NASA Advanced Recon
+name: NASA Advanced Recon 2026
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Berjalan otomatis setiap hari (opsional)
-  workflow_dispatch:   # Bisa dijalankan manual
+    - cron: '0 0 * * *' # Jalan otomatis setiap jam 12 malam
+  workflow_dispatch:   # Tombol manual "Run Workflow"
 
 jobs:
   recon-nasa:
@@ -17,61 +17,47 @@ jobs:
         with:
           go-version: '>=1.21.0'
 
-      - name: Install Cloud-Native Security Tools
+      - name: Install Hunting Tools
         run: |
-          # Menggunakan go install untuk konsistensi versi terbaru
           go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
           go install github.com/projectdiscovery/httpx/cmd/httpx@latest
           go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
           go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest
           go install github.com/tomnomnom/anew@latest
-          
-          # Move to path
           sudo mv ~/go/bin/* /usr/bin/
 
-      - name: Dynamic Reconnaissance & Vulnerability Mapping
+      - name: Start Scanning NASA
         env:
           TARGET: "nasa.gov"
-          # Pastikan TOKEN ditaruh di GitHub Secrets jika menggunakan API Key
-          # PDCP_API_KEY: ${{ secrets.PDCP_API_KEY }} 
         run: |
           mkdir -p results/$TARGET
           TODAY=$(date +%Y-%m-%d)
 
-          echo "::group::Subdomain Enumeration"
-          # Menggunakan subfinder dengan optimasi (tambahkan API keys di config untuk hasil maksimal)
-          subfinder -d $TARGET -silent -all -recursive > all_subs.txt
-          echo "::endgroup::"
+          # Cari subdomain & filter yang aktif saja
+          subfinder -d $TARGET -silent | dnsx -silent | anew results/$TARGET/resolved.txt
 
-          echo "::group::DNS Filtering & Resolution"
-          # Memastikan hanya subdomain yang valid secara DNS yang diproses
-          cat all_subs.txt | dnsx -silent -retry 3 -a -aaaa -cname -resp-only | anew results/$TARGET/resolved.txt
-          echo "::endgroup::"
+          # Cek web server & teknologi (Rate limit 100 biar aman)
+          cat results/$TARGET/resolved.txt | httpx -silent -td -title -status-code -rl 100 -o results/$TARGET/live_web.txt
 
-          echo "::group::Advanced Web Probing"
-          # httpx 2026: Fokus pada teknologi modern, favicon hash, dan TLS
-          cat results/$TARGET/resolved.txt | httpx \
-            -silent -td -title -status-code -ip -asn \
-            -tech-detect -follow-redirects \
-            -random-agent -rl 150 \
-            -o results/$TARGET/live_web.txt
-          echo "::endgroup::"
+          # Scan kerentanan otomatis
+          cat results/$TARGET/live_web.txt | awk '{print $1}' | nuclei -as -silent -rl 50 -o results/$TARGET/vulnerabilities_$TODAY.txt
 
-          echo "::group::Nuclei Smart Scanning"
-          # Menggunakan nuclei v3 dengan 'Automatic Scan' (-as) untuk efisiensi template
-          # Menambahkan header identitas sesuai kebijakan VDP NASA
-          cat results/$TARGET/live_web.txt | awk '{print $1}' | nuclei \
-            -as -silent \
-            -header "User-Agent: BugBounty-Scanner-YourName" \
-            -severity low,medium,high,critical \
-            -stats -rl 50 -c 15 \
-            -o results/$TARGET/vulnerabilities_$TODAY.txt
-          echo "::endgroup::"
-
-      - name: Data Management & Persistence
+      - name: Save Results to Repo
+        env:
+          # Menggunakan token internal GitHub
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.email "actions@github.com"
-          git config --global user.name "Recon Bot"
+          # [BAGIAN PENTING]: Kasih tahu identitas bot ke Git
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          
+          # Simpan perubahan
           git add results/
-          git commit -m "NASA Recon Report - $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push
+          
+          # Commit hanya jika ada file baru agar tidak error
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git commit -m "NASA Recon Report - $(date +'%Y-%m-%d %H:%M')"
+            git push origin master || git push origin main
+          else
+            echo "Gak ada data baru, gak perlu push."
+          fi
