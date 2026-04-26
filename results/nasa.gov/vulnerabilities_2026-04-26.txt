@@ -1,0 +1,4 @@
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://ao.jpl.nasa.gov/index ["index.html"] [path="/index"]
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://ecolloq.gsfc.nasa.gov/index ["index.html"] [path="/index"]
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://grndl2292612.grc.nasa.gov/index ["index.html","index.html.bak"] [path="/index"]
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://roland.grc.nasa.gov/index ["index.html","index.html.bak"] [path="/index"]
