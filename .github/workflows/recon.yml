@@ -35,7 +35,7 @@ jobs:
           TARGET: "nasa.gov"
         run: |
           mkdir -p results/$TARGET/endpoints
-          RESOLVED="results/$TARGET/resolved.txt"
+          RESOLVED="results/$TARGET/live_web_clean.txt"
 
           # Pastikan file resolved ada
           if [ ! -f "$RESOLVED" ]; then echo "File resolved.txt tidak ditemukan!"; exit 1; fi
