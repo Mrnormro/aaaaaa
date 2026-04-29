@@ -1,1 +1,73 @@
+name: NASA Endpoint & Sensitive Discovery
 
+on:
+  workflow_dispatch: # Jalankan manual dari tab Actions
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.21.0'
+
+      - name: Install Discovery Tools
+        run: |
+          # Tool untuk ambil URL pasif
+          go install github.com/tomnomnom/waybackurls@latest
+          go install github.com/lc/gau/v2/cmd/gau@latest
+          
+          # Crawler aktif modern
+          go install github.com/projectdiscovery/katana/cmd/katana@latest
+          
+          # Tool manajemen hasil (Deduplikasi & Filter)
+          go install github.com/tomnomnom/anew@latest
+          pip install uro
+          
+          sudo mv ~/go/bin/* /usr/bin/
+
+      - name: Run Endpoint Discovery
+        env:
+          TARGET: "nasa.gov"
+        run: |
+          mkdir -p results/$TARGET/endpoints
+          RESOLVED="results/$TARGET/resolved.txt"
+
+          # Pastikan file resolved ada
+          if [ ! -f "$RESOLVED" ]; then echo "File resolved.txt tidak ditemukan!"; exit 1; fi
+
+          echo "[*] Tahap 1: Mengumpulkan URL Pasif (Wayback & Gau)..."
+          cat $RESOLVED | waybackurls | anew tmp_urls.txt
+          cat $RESOLVED | gau --threads 10 | anew tmp_urls.txt
+
+          echo "[*] Tahap 2: Active Crawling dengan Katana (Mencari endpoint baru)..."
+          # -jc: cek file JS, -kf all: ambil semua kunci, -d 3: kedalaman crawl
+          katana -list $RESOLVED -silent -nc -jc -kf all -c 20 -d 3 | anew tmp_urls.txt
+
+          echo "[*] Tahap 3: Membersihkan & Deduplikasi dengan Uro..."
+          # Uro secara cerdas membuang noise (css, png, jpg) dan merapikan list
+          cat tmp_urls.txt | uro | anew results/$TARGET/endpoints/all_urls_clean.txt
+
+          echo "[*] Tahap 4: Memisahkan File Sensitif..."
+          # Mencari ekstensi file yang menarik
+          cat results/$TARGET/endpoints/all_urls_clean.txt | grep -E "\.(zip|pdf|xml|json|xls|xlsx|doc|docx|sql|db|bak|log|conf|config|env|txt|js)$" > results/$TARGET/endpoints/sensitive_files.txt
+
+          echo "[*] Tahap 5: Memisahkan URL Berparameter (Target XSS/SQLi)..."
+          # Mengambil URL yang mengandung karakter '?' yang menandakan adanya parameter
+          cat results/$TARGET/endpoints/all_urls_clean.txt | grep "?" | anew results/$TARGET/endpoints/xss_parameters.txt
+
+          echo "[+] Selesai! Hasil tersimpan di folder results/$TARGET/endpoints/"
+
+      - name: Save Results to Repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add results/
+          git commit -m "Endpoint Discovery Update - $(date +'%Y-%m-%d')" || exit 0
+          git push origin master || git push origin main
