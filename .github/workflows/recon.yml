@@ -1,7 +1,7 @@
-name: NASA XSS Scanner Final
+name: NASA Direct XSS Scanner
 
 on:
-  workflow_dispatch: # Jalankan manual setelah file xss_parameters.txt tersedia
+  workflow_dispatch:
 
 jobs:
   xss-scan:
@@ -15,17 +15,12 @@ jobs:
         with:
           go-version: '>=1.21.0'
 
-      - name: Install XSS Tools
+      - name: Install Dalfox
         run: |
-          # Gxss untuk cek refleksi parameter
-          go install github.com/KathanP19/Gxss@latest
-          
-          # Dalfox versi terbaru
           go install github.com/hahwul/dalfox/v2@latest
-          
-          sudo mv ~/go/bin/* /usr/bin/
+          sudo mv ~/go/bin/dalfox /usr/bin/
 
-      - name: Run XSS Scanning
+      - name: Run Dalfox Directly
         env:
           TARGET: "nasa.gov"
         run: |
@@ -37,30 +32,17 @@ jobs:
             echo "[!] File $INPUT_FILE tidak ditemukan!"; exit 1; 
           fi
 
-          echo "[*] Tahap 1: Memeriksa refleksi parameter (Gxss)..."
-          # Menambahkan timeout agar tidak nyangkut (Broken pipe)
-          cat $INPUT_FILE | Gxss -p khynz -c 50 | grep "Reflected" | awk '{print $1}' > reflected_targets.txt
-
-          echo "[*] Tahap 2: Scanning dengan Dalfox (Safe Mode)..."
-          if [ -s reflected_targets.txt ]; then
-            # Menggunakan mode stabil untuk menghindari crash
-            dalfox file reflected_targets.txt \
-              --worker 5 \
-              --delay 100 \
-              --no-browser \
-              --skip-bailing \
-              --timeout 15 \
-              --header "User-Agent: NASA-VDP-Scanner-Research" \
-              --output $OUTPUT_FILE
-          else
-            echo "[!] Tidak ada parameter yang reflected via Gxss."
-            echo "[*] Melakukan sampling 30 URL teratas secara langsung..."
-            head -n 30 $INPUT_FILE | dalfox pipe \
-              --worker 5 \
-              --no-browser \
-              --skip-bailing \
-              --output $OUTPUT_FILE
-          fi
+          echo "[*] Memulai Direct Scanning pada seluruh list..."
+          # Menggunakan worker 10 agar cepat tapi tidak terlalu berisik
+          # --no-browser untuk mencegah crash 'panic'
+          # --skip-bailing agar scan terus lanjut meski ada satu target yang timeout
+          cat $INPUT_FILE | dalfox pipe \
+            --worker 10 \
+            --no-browser \
+            --skip-bailing \
+            --timeout 15 \
+            --header "User-Agent: NASA-VDP-Researcher" \
+            --output $OUTPUT_FILE
 
       - name: Save Results to Repo
         env:
@@ -68,12 +50,10 @@ jobs:
         run: |
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          
           git add results/
-          
           if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "XSS Scan Final Results - $(date +'%Y-%m-%d')" || exit 0
+            git commit -m "Direct XSS Scan Results - $(date +'%Y-%m-%d')" || exit 0
             git push origin master || git push origin main
           else
-            echo "Tidak ada temuan XSS yang tersimpan."
+            echo "Tidak ada temuan baru."
           fi
