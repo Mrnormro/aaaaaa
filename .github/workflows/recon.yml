@@ -1,7 +1,7 @@
-name: NASA XSS Scanner
+name: NASA XSS Scanner Final
 
 on:
-  workflow_dispatch: # Jalankan manual setelah endpoint discovery selesai
+  workflow_dispatch: # Jalankan manual setelah file xss_parameters.txt tersedia
 
 jobs:
   xss-scan:
@@ -20,7 +20,7 @@ jobs:
           # Gxss untuk cek refleksi parameter
           go install github.com/KathanP19/Gxss@latest
           
-          # Dalfox sebagai main XSS Scanner
+          # Dalfox versi terbaru
           go install github.com/hahwul/dalfox/v2@latest
           
           sudo mv ~/go/bin/* /usr/bin/
@@ -38,21 +38,28 @@ jobs:
           fi
 
           echo "[*] Tahap 1: Memeriksa refleksi parameter (Gxss)..."
-          # Gxss akan memfilter URL yang benar-benar memantulkan input kita
-          cat $INPUT_FILE | Gxss -p khynz | grep "Reflected" | awk '{print $1}' > reflected_targets.txt
+          # Menambahkan timeout agar tidak nyangkut (Broken pipe)
+          cat $INPUT_FILE | Gxss -p khynz -c 50 | grep "Reflected" | awk '{print $1}' > reflected_targets.txt
 
-          echo "[*] Tahap 2: Scanning dengan Dalfox..."
+          echo "[*] Tahap 2: Scanning dengan Dalfox (Safe Mode)..."
           if [ -s reflected_targets.txt ]; then
-            # Scan hanya URL yang reflected agar lebih cepat dan efektif
+            # Menggunakan mode stabil untuk menghindari crash
             dalfox file reflected_targets.txt \
-              --worker 20 \
-              --timeout 10 \
+              --worker 5 \
+              --delay 100 \
+              --no-browser \
+              --skip-bailing \
+              --timeout 15 \
               --header "User-Agent: NASA-VDP-Scanner-Research" \
               --output $OUTPUT_FILE
           else
-            echo "[!] Tidak ada parameter yang reflected. Mencoba scan langsung (light mode)..."
-            # Jika Gxss kosong, scan 50 URL pertama secara acak dari list asli sebagai sample
-            head -n 50 $INPUT_FILE | dalfox pipe --worker 10 --output $OUTPUT_FILE
+            echo "[!] Tidak ada parameter yang reflected via Gxss."
+            echo "[*] Melakukan sampling 30 URL teratas secara langsung..."
+            head -n 30 $INPUT_FILE | dalfox pipe \
+              --worker 5 \
+              --no-browser \
+              --skip-bailing \
+              --output $OUTPUT_FILE
           fi
 
       - name: Save Results to Repo
@@ -61,6 +68,12 @@ jobs:
         run: |
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
+          
           git add results/
-          git commit -m "XSS Scan Update - $(date +'%Y-%m-%d')" || exit 0
-          git push origin master || git push origin main
+          
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git commit -m "XSS Scan Final Results - $(date +'%Y-%m-%d')" || exit 0
+            git push origin master || git push origin main
+          else
+            echo "Tidak ada temuan XSS yang tersimpan."
+          fi
