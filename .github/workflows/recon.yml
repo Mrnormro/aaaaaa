@@ -1,10 +1,10 @@
-name: NASA Endpoint & Sensitive Discovery
+name: NASA XSS Scanner
 
 on:
-  workflow_dispatch: # Jalankan manual dari tab Actions
+  workflow_dispatch: # Jalankan manual setelah endpoint discovery selesai
 
 jobs:
-  discovery:
+  xss-scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -15,52 +15,45 @@ jobs:
         with:
           go-version: '>=1.21.0'
 
-      - name: Install Discovery Tools
+      - name: Install XSS Tools
         run: |
-          # Tool untuk ambil URL pasif
-          go install github.com/tomnomnom/waybackurls@latest
-          go install github.com/lc/gau/v2/cmd/gau@latest
+          # Gxss untuk cek refleksi parameter
+          go install github.com/KathanP19/Gxss@latest
           
-          # Crawler aktif modern
-          go install github.com/projectdiscovery/katana/cmd/katana@latest
-          
-          # Tool manajemen hasil (Deduplikasi & Filter)
-          go install github.com/tomnomnom/anew@latest
-          pip install uro
+          # Dalfox sebagai main XSS Scanner
+          go install github.com/hahwul/dalfox/v2@latest
           
           sudo mv ~/go/bin/* /usr/bin/
 
-      - name: Run Endpoint Discovery
+      - name: Run XSS Scanning
         env:
           TARGET: "nasa.gov"
         run: |
-          mkdir -p results/$TARGET/endpoints
-          RESOLVED="results/$TARGET/live_web_clean.txt"
+          mkdir -p results/$TARGET/vulnerabilities
+          INPUT_FILE="results/$TARGET/endpoints/xss_parameters.txt"
+          OUTPUT_FILE="results/$TARGET/vulnerabilities/xss_results.txt"
 
-          # Pastikan file resolved ada
-          if [ ! -f "$RESOLVED" ]; then echo "File resolved.txt tidak ditemukan!"; exit 1; fi
+          if [ ! -f "$INPUT_FILE" ]; then 
+            echo "[!] File $INPUT_FILE tidak ditemukan!"; exit 1; 
+          fi
 
-          echo "[*] Tahap 1: Mengumpulkan URL Pasif (Wayback & Gau)..."
-          cat $RESOLVED | waybackurls | anew tmp_urls.txt
-          cat $RESOLVED | gau --threads 10 | anew tmp_urls.txt
+          echo "[*] Tahap 1: Memeriksa refleksi parameter (Gxss)..."
+          # Gxss akan memfilter URL yang benar-benar memantulkan input kita
+          cat $INPUT_FILE | Gxss -p khynz | grep "Reflected" | awk '{print $1}' > reflected_targets.txt
 
-          echo "[*] Tahap 2: Active Crawling dengan Katana (Mencari endpoint baru)..."
-          # -jc: cek file JS, -kf all: ambil semua kunci, -d 3: kedalaman crawl
-          katana -list $RESOLVED -silent -nc -jc -kf all -c 20 -d 3 | anew tmp_urls.txt
-
-          echo "[*] Tahap 3: Membersihkan & Deduplikasi dengan Uro..."
-          # Uro secara cerdas membuang noise (css, png, jpg) dan merapikan list
-          cat tmp_urls.txt | uro | anew results/$TARGET/endpoints/all_urls_clean.txt
-
-          echo "[*] Tahap 4: Memisahkan File Sensitif..."
-          # Mencari ekstensi file yang menarik
-          cat results/$TARGET/endpoints/all_urls_clean.txt | grep -E "\.(zip|pdf|xml|json|xls|xlsx|doc|docx|sql|db|bak|log|conf|config|env|txt|js)$" > results/$TARGET/endpoints/sensitive_files.txt
-
-          echo "[*] Tahap 5: Memisahkan URL Berparameter (Target XSS/SQLi)..."
-          # Mengambil URL yang mengandung karakter '?' yang menandakan adanya parameter
-          cat results/$TARGET/endpoints/all_urls_clean.txt | grep "?" | anew results/$TARGET/endpoints/xss_parameters.txt
-
-          echo "[+] Selesai! Hasil tersimpan di folder results/$TARGET/endpoints/"
+          echo "[*] Tahap 2: Scanning dengan Dalfox..."
+          if [ -s reflected_targets.txt ]; then
+            # Scan hanya URL yang reflected agar lebih cepat dan efektif
+            dalfox file reflected_targets.txt \
+              --worker 20 \
+              --timeout 10 \
+              --header "User-Agent: NASA-VDP-Scanner-Research" \
+              --output $OUTPUT_FILE
+          else
+            echo "[!] Tidak ada parameter yang reflected. Mencoba scan langsung (light mode)..."
+            # Jika Gxss kosong, scan 50 URL pertama secara acak dari list asli sebagai sample
+            head -n 50 $INPUT_FILE | dalfox pipe --worker 10 --output $OUTPUT_FILE
+          fi
 
       - name: Save Results to Repo
         env:
@@ -69,5 +62,5 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           git add results/
-          git commit -m "Endpoint Discovery Update - $(date +'%Y-%m-%d')" || exit 0
+          git commit -m "XSS Scan Update - $(date +'%Y-%m-%d')" || exit 0
           git push origin master || git push origin main
