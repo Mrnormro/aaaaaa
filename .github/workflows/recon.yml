@@ -1,4 +1,4 @@
-name: NASA Direct XSS Scanner
+name: NASA Direct XSS Scanner (Fixed)
 
 on:
   workflow_dispatch:
@@ -32,14 +32,14 @@ jobs:
             echo "[!] File $INPUT_FILE tidak ditemukan!"; exit 1; 
           fi
 
-          echo "[*] Memulai Direct Scanning pada seluruh list..."
-          # Menggunakan worker 10 agar cepat tapi tidak terlalu berisik
-          # --no-browser untuk mencegah crash 'panic'
-          # --skip-bailing agar scan terus lanjut meski ada satu target yang timeout
+          echo "[*] Memulai Direct Scanning (Flag Fixed)..."
+          # Perbaikan flag: --skip-headless (untuk melewati DOM/Browser scan)
+          # Perbaikan flag: --skip-mining-all (agar tidak membuang waktu mencari parameter baru)
           cat $INPUT_FILE | dalfox pipe \
             --worker 10 \
-            --no-browser \
-            --skip-bailing \
+            --delay 100 \
+            --skip-headless \
+            --skip-mining-all \
             --timeout 15 \
             --header "User-Agent: NASA-VDP-Researcher" \
             --output $OUTPUT_FILE
@@ -52,7 +52,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git add results/
           if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "Direct XSS Scan Results - $(date +'%Y-%m-%d')" || exit 0
+            git commit -m "XSS Scan Fixed - $(date +'%Y-%m-%d')" || exit 0
             git push origin master || git push origin main
           else
             echo "Tidak ada temuan baru."
