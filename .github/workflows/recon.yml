@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      TARGET: "YOUR-AUTHORIZED-DOMAIN.TLD"
+      TARGET: "tangerangselatankota.go.id"
 
     steps:
       - name: Checkout Repository
