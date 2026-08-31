@@ -1,4 +1,4 @@
-name: Authorized Web Security Recon
+name: Authorized Nuclei Full Recon
 
 on:
   schedule:
@@ -9,15 +9,14 @@ permissions:
   contents: write
 
 jobs:
-  security-scan:
+  recon:
     runs-on: ubuntu-latest
 
     env:
-      # GANTI dengan domain yang Anda miliki/diizinkan untuk diuji.
-      TARGET: "tangerangselatankota.go.id"
+      TARGET: "YOUR-AUTHORIZED-DOMAIN.TLD"
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Go
@@ -25,30 +24,35 @@ jobs:
         with:
           go-version: "1.24.x"
 
-      - name: Install ProjectDiscovery tools
+      - name: Install Recon Tools
         shell: bash
         run: |
           set -euo pipefail
 
-          go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-          go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+          go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+          go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+          go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
 
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
-      - name: Update Nuclei templates
+      - name: Prepare Results Directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "results/${TARGET}"
+
+      - name: Update Nuclei Templates
         shell: bash
         run: |
           set -euo pipefail
 
           nuclei -update-templates
 
-      - name: Enumerate authorized subdomains
+      - name: Enumerate Subdomains
         shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p "results/${TARGET}"
 
           subfinder \
             -d "${TARGET}" \
@@ -56,7 +60,7 @@ jobs:
             -silent \
             -o "results/${TARGET}/subdomains.txt"
 
-          # Pastikan root domain ikut diperiksa.
+          # Pastikan root domain ikut masuk.
           printf '%s\n' "${TARGET}" \
             >> "results/${TARGET}/subdomains.txt"
 
@@ -64,7 +68,11 @@ jobs:
             "results/${TARGET}/subdomains.txt" \
             -o "results/${TARGET}/subdomains.txt"
 
-      - name: Probe live HTTP services
+          echo "===== SUBDOMAIN SUMMARY ====="
+          echo "Total unique subdomains:"
+          wc -l "results/${TARGET}/subdomains.txt"
+
+      - name: Probe HTTP Services
         shell: bash
         run: |
           set -euo pipefail
@@ -78,32 +86,62 @@ jobs:
             -tech-detect \
             -o "results/${TARGET}/live.txt"
 
-          # Ambil URL saja untuk Nuclei.
           awk '{print $1}' \
             "results/${TARGET}/live.txt" \
             | sort -u \
             > "results/${TARGET}/urls.txt"
 
-      - name: Nuclei Low-Critical assessment
+          echo "===== HTTP SUMMARY ====="
+          echo "Live HTTP/HTTPS URLs:"
+          wc -l "results/${TARGET}/urls.txt"
+
+      - name: Display Nuclei Input
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== NUCLEI INPUT ====="
+          cat "results/${TARGET}/urls.txt"
+
+          echo
+          echo "Total targets:"
+          wc -l "results/${TARGET}/urls.txt"
+
+      - name: Nuclei Full Template Scan
         shell: bash
         run: |
           set -euo pipefail
 
           TODAY="$(date -u +%Y-%m-%d)"
 
+          OUT="results/${TARGET}/nuclei-${TODAY}.txt"
+
           nuclei \
             -l "results/${TARGET}/urls.txt" \
             -severity low,medium,high,critical \
-            -automatic-scan \
             -silent \
             -retries 2 \
             -timeout 10 \
             -rate-limit 25 \
             -bulk-size 10 \
             -concurrency 10 \
-            -o "results/${TARGET}/nuclei-${TODAY}.txt"
+            -o "$OUT"
 
-      - name: Generate latest result pointer
+          echo "===== NUCLEI SUMMARY ====="
+
+          if [ -f "$OUT" ]; then
+            echo "Result file:"
+            echo "$OUT"
+
+            echo
+            echo "Total findings:"
+            wc -l "$OUT"
+          else
+            echo "No Nuclei output file generated."
+            touch "$OUT"
+          fi
+
+      - name: Create Latest Result
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +152,28 @@ jobs:
             "results/${TARGET}/nuclei-${TODAY}.txt" \
             "results/${TARGET}/nuclei-latest.txt"
 
-      - name: Commit results
+      - name: Generate Scan Metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          {
+            echo "Target: ${TARGET}"
+            echo "Scan date: ${TODAY}"
+            echo
+            echo "Subdomains:"
+            wc -l "results/${TARGET}/subdomains.txt"
+            echo
+            echo "Live URLs:"
+            wc -l "results/${TARGET}/urls.txt"
+            echo
+            echo "Nuclei findings:"
+            wc -l "results/${TARGET}/nuclei-${TODAY}.txt"
+          } > "results/${TARGET}/scan-summary-${TODAY}.txt"
+
+      - name: Commit Results
         shell: bash
         run: |
           set -euo pipefail
@@ -125,14 +184,14 @@ jobs:
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add results/
+          git add "results/${TARGET}/"
 
           if git diff --cached --quiet; then
-            echo "No result changes."
+            echo "No changes to commit."
             exit 0
           fi
 
           git commit \
-            -m "Authorized security scan - ${TARGET} - ${TODAY}"
+            -m "Nuclei scan update - ${TARGET} - ${TODAY}"
 
           git push
