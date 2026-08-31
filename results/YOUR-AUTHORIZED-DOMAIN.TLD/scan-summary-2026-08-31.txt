@@ -1,0 +1,11 @@
+Target: YOUR-AUTHORIZED-DOMAIN.TLD
+Scan date: 2026-08-31
+
+Subdomains:
+1 results/YOUR-AUTHORIZED-DOMAIN.TLD/subdomains.txt
+
+Live URLs:
+0 results/YOUR-AUTHORIZED-DOMAIN.TLD/urls.txt
+
+Nuclei findings:
+0 results/YOUR-AUTHORIZED-DOMAIN.TLD/nuclei-2026-08-31.txt
