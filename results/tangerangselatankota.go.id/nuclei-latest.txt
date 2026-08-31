@@ -1,0 +1,2 @@
+[node-express-dev-env] [http] [medium] http://bookir.tangerangselatankota.go.id
+[apache-mod-negotiation-listing:exposed_files] [http] [low] https://pbb-bphtb.tangerangselatankota.go.id/index ["index.php","index.txt"] [path="/index"]
