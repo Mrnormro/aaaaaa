@@ -1,59 +1,138 @@
-name: NASA Direct XSS Scanner (Fixed)
+name: Authorized Web Security Recon
 
 on:
+  schedule:
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  xss-scan:
+  security-scan:
     runs-on: ubuntu-latest
+
+    env:
+      # GANTI dengan domain yang Anda miliki/diizinkan untuk diuji.
+      TARGET: "tangerangselatankota.go.id"
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '>=1.21.0'
+          go-version: "1.24.x"
 
-      - name: Install Dalfox
+      - name: Install ProjectDiscovery tools
+        shell: bash
         run: |
-          go install github.com/hahwul/dalfox/v2@latest
-          sudo mv ~/go/bin/dalfox /usr/bin/
+          set -euo pipefail
 
-      - name: Run Dalfox Directly
-        env:
-          TARGET: "nasa.gov"
+          go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+          go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+          go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+
+      - name: Update Nuclei templates
+        shell: bash
         run: |
-          mkdir -p results/$TARGET/vulnerabilities
-          INPUT_FILE="results/$TARGET/endpoints/xss_parameters.txt"
-          OUTPUT_FILE="results/$TARGET/vulnerabilities/xss_results.txt"
+          set -euo pipefail
 
-          if [ ! -f "$INPUT_FILE" ]; then 
-            echo "[!] File $INPUT_FILE tidak ditemukan!"; exit 1; 
-          fi
+          nuclei -update-templates
 
-          echo "[*] Memulai Direct Scanning (Flag Fixed)..."
-          # Perbaikan flag: --skip-headless (untuk melewati DOM/Browser scan)
-          # Perbaikan flag: --skip-mining-all (agar tidak membuang waktu mencari parameter baru)
-          cat $INPUT_FILE | dalfox pipe \
-            --worker 10 \
-            --delay 100 \
-            --skip-headless \
-            --skip-mining-all \
-            --timeout 15 \
-            --header "User-Agent: NASA-VDP-Researcher" \
-            --output $OUTPUT_FILE
-
-      - name: Save Results to Repo
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Enumerate authorized subdomains
+        shell: bash
         run: |
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --global user.name "github-actions[bot]"
+          set -euo pipefail
+
+          mkdir -p "results/${TARGET}"
+
+          subfinder \
+            -d "${TARGET}" \
+            -all \
+            -silent \
+            -o "results/${TARGET}/subdomains.txt"
+
+          # Pastikan root domain ikut diperiksa.
+          printf '%s\n' "${TARGET}" \
+            >> "results/${TARGET}/subdomains.txt"
+
+          sort -u \
+            "results/${TARGET}/subdomains.txt" \
+            -o "results/${TARGET}/subdomains.txt"
+
+      - name: Probe live HTTP services
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          httpx \
+            -l "results/${TARGET}/subdomains.txt" \
+            -silent \
+            -follow-redirects \
+            -status-code \
+            -title \
+            -tech-detect \
+            -o "results/${TARGET}/live.txt"
+
+          # Ambil URL saja untuk Nuclei.
+          awk '{print $1}' \
+            "results/${TARGET}/live.txt" \
+            | sort -u \
+            > "results/${TARGET}/urls.txt"
+
+      - name: Nuclei Low-Critical assessment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          nuclei \
+            -l "results/${TARGET}/urls.txt" \
+            -severity low,medium,high,critical \
+            -automatic-scan \
+            -silent \
+            -retries 2 \
+            -timeout 10 \
+            -rate-limit 25 \
+            -bulk-size 10 \
+            -concurrency 10 \
+            -o "results/${TARGET}/nuclei-${TODAY}.txt"
+
+      - name: Generate latest result pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          cp \
+            "results/${TARGET}/nuclei-${TODAY}.txt" \
+            "results/${TARGET}/nuclei-latest.txt"
+
+      - name: Commit results
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add results/
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git commit -m "XSS Scan Fixed - $(date +'%Y-%m-%d')" || exit 0
-            git push origin master || git push origin main
-          else
-            echo "Tidak ada temuan baru."
+
+          if git diff --cached --quiet; then
+            echo "No result changes."
+            exit 0
           fi
+
+          git commit \
+            -m "Authorized security scan - ${TARGET} - ${TODAY}"
+
+          git push
